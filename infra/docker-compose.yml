@@ -1,0 +1,42 @@
+name: agromir-boiler
+
+services:
+  postgres:
+    image: postgres:15
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U main -d agromir_boiler"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ../services/api
+    ports:
+      - "127.0.0.1:8002:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ../services/api/.env
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build: ../services/frontend
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
