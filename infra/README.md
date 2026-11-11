@@ -51,7 +51,7 @@ Connection: close
 
 ```
 ingest auth: no key from 95.46.67.28 (expected one of headers [Authorization Header X-API-Key])
-ingest auth: wrong key from 95.46.67.28 in header "Header" (AgRm***, len=33)
+ingest auth: wrong key from 95.46.67.28 in header "Header" (abcd***, len=12)
 ingest from 95.46.67.28: invalid body: <причина>; body: <первые 1000 байт тела>
 ingest from 95.46.67.28 (plant plant-01): unknown boiler_number: [25]
 ```
