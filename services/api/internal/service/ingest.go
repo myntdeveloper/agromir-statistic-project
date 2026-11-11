@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/myntdeveloper/agromir_boiler_server/internal/model"
 	"github.com/myntdeveloper/agromir_boiler_server/internal/repo"
@@ -26,6 +27,8 @@ func NewIngestService(r *repo.IngestRepo) *IngestService {
 }
 
 func (s *IngestService) Ingest(ctx context.Context, req model.IngestRequest) (int, error) {
+	fillMissingTimestamps(&req)
+
 	numbers := uniqueBoilerNumbers(req.Readings)
 	ids, err := s.repo.MapBoilerNumbers(ctx, numbers)
 	if err != nil {
@@ -52,6 +55,19 @@ func (s *IngestService) PlantStatus(ctx context.Context, plantID string) (*model
 		return nil, ErrPlantNotFound
 	}
 	return status, nil
+}
+
+// PLC clocks are often unsynced, so readings without ts get sent_at or server time.
+func fillMissingTimestamps(req *model.IngestRequest) {
+	fallback := req.SentAt
+	if fallback.IsZero() {
+		fallback = time.Now().UTC().Truncate(time.Second)
+	}
+	for i := range req.Readings {
+		if req.Readings[i].TS.IsZero() {
+			req.Readings[i].TS = fallback
+		}
+	}
 }
 
 func uniqueBoilerNumbers(readings []model.IngestReading) []int {

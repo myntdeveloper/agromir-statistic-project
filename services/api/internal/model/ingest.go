@@ -10,7 +10,7 @@ type IngestRequest struct {
 
 type IngestReading struct {
 	BoilerNumber int       `json:"boiler_number" binding:"required,min=1"`
-	TS           time.Time `json:"ts" binding:"required"`
+	TS           time.Time `json:"ts"`
 	LevelMM      float64   `json:"level_mm"`
 	Density      float64   `json:"density"`
 	VolumeM3     float64   `json:"volume_m3"`

@@ -22,7 +22,7 @@ func NewIngestHandler(svc *service.IngestService) *IngestHandler {
 func (h *IngestHandler) IngestReadings(c *gin.Context) {
 	var req model.IngestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
 		return
 	}
 
