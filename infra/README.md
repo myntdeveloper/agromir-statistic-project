@@ -3,7 +3,7 @@
 Контроллер Siemens S7-1200 (или WinCC Runtime на ПК завода) раз в N минут отправляет HTTP POST с JSON на API. Отдельный агент на ПК завода не нужен.
 
 ```
-S7-1200 / WinCC  ──HTTPS POST──►  nginx :443  ──►  api :8000  ──►  PostgreSQL
+S7-1200 / WinCC  ──HTTP POST──►  nginx :80  ──►  api :8000  ──►  PostgreSQL
 ```
 
 ## Куда отправлять
@@ -11,22 +11,26 @@ S7-1200 / WinCC  ──HTTPS POST──►  nginx :443  ──►  api :8000  �
 | Параметр | Значение |
 |---|---|
 | Метод | `POST` |
-| URL | `https://agromir-stat.online/api/v1/ingest/readings` |
-| Хост / IP | `agromir-stat.online` → `168.113.176.218` |
-| Порт | `443` (HTTPS, TLS 1.2 / 1.3) |
+| URL | `http://168.113.176.218/api/v1/ingest/readings` |
+| IP | `168.113.176.218` |
+| Порт | `80` (обычный HTTP, без TLS) |
 | Path | `/api/v1/ingest/readings` |
 
-Важно:
+По IP nginx отдаёт сайт и API по обычному HTTP, без редиректа и без сертификатов. Это основной вариант для ПЛК: DNS, NTP и импорт сертификатов не нужны.
 
-- Порт `80` (HTTP) отвечает редиректом `301` на HTTPS. ПЛК и WinCC редиректы для POST не обрабатывают, поэтому отправлять нужно сразу на `https://...:443`.
-- Сертификат выдан Let's Encrypt на имя `agromir-stat.online`. Если ПЛК подключается по IP, проверка имени в сертификате не пройдёт. Нужно либо указать DNS-сервер в ПЛК и обращаться по имени, либо отключить проверку имени хоста в настройках TLS-соединения.
-- Для S7-1200 в сертификаты ПЛК (TIA Portal → Global security settings → Certificate manager) нужно импортировать корневой сертификат Let's Encrypt **ISRG Root X1**.
+Запасной вариант — `https://agromir-stat.online/api/v1/ingest/readings` (порт `443`). Учтите:
+
+- `http://agromir-stat.online/...` (по домену, порт 80) отвечает редиректом `301` на HTTPS, а ПЛК и WinCC редиректы для POST не обрабатывают. По HTTP обращайтесь только по IP.
+- `https://168.113.176.218/...` не пройдёт проверку сертификата: он выдан на домен, а не на IP.
+- Для HTTPS с S7-1200 нужно импортировать корневой сертификат Let's Encrypt **ISRG Root X1** (TIA Portal → Global security settings → Certificate manager) и задать DNS в ПЛК.
+
+По HTTP ключ `AGENT_API_KEY` передаётся открытым текстом. Если у завода статический внешний IP, ограничьте приём только им (см. «Ограничение по IP завода»).
 
 ## Заголовки
 
 ```http
 POST /api/v1/ingest/readings HTTP/1.1
-Host: agromir-stat.online
+Host: 168.113.176.218
 Authorization: Bearer <AGENT_API_KEY>
 Content-Type: application/json
 Content-Length: <длина тела в байтах>
@@ -131,7 +135,7 @@ Function Num(v)
 End Function
 
 Sub SendBoilerReadings()
-    Const API_URL = "https://agromir-stat.online/api/v1/ingest/readings"
+    Const API_URL = "http://168.113.176.218/api/v1/ingest/readings"
     Const API_KEY = "<AGENT_API_KEY>"
 
     Dim i, json, sep, p
@@ -172,7 +176,7 @@ Sub SendBoilerReadings()
 End Sub
 ```
 
-На ПК с WinCC должен быть выход в интернет на `agromir-stat.online:443`, а в Windows — доверенный корневой сертификат ISRG Root X1. На Windows 10/11 и Server 2016+ он уже есть.
+На ПК с WinCC должен быть выход в интернет на `168.113.176.218:80` (проверьте фаервол завода).
 
 ## Вариант 2: напрямую с S7-1200
 
@@ -180,10 +184,8 @@ End Sub
 
 Требования:
 
-- CPU S7-1200 с прошивкой **V4.5 или новее** и TIA Portal V17+ — для TLS (secure Open User Communication).
-- В свойствах CPU: задан шлюз (gateway) и DNS-сервер, иначе имя `agromir-stat.online` не разрешится.
-- Импортирован сертификат ISRG Root X1 (см. выше), соединение `TCON_IP_V4_SEC` / `TCON_QDN_SEC` с `ActivateSecureConn = TRUE` и порт удалённой стороны `443`.
-- Время в ПЛК синхронизировано по NTP, иначе TLS может не пройти проверку срока действия сертификата.
+- В свойствах CPU задан шлюз (gateway) с выходом в интернет.
+- Соединение `TCON_IP_V4`: IP партнёра `168.113.176.218`, порт `80`, активное установление соединения со стороны ПЛК. TLS, DNS и сертификаты не нужны.
 
 JSON собирается в `Array of Char` / `WString` (обычный `String` ограничен 254 символами). Числа — через `Real`→`String` с последующей заменой пробелов и запятых: формат должен соответствовать разделу «Правила формата». Поле `ts` проще не передавать.
 
@@ -191,7 +193,7 @@ JSON собирается в `Array of Char` / `WString` (обычный `String
 
 ```http
 POST /api/v1/ingest/readings HTTP/1.1
-Host: agromir-stat.online
+Host: 168.113.176.218
 Authorization: Bearer <AGENT_API_KEY>
 Content-Type: application/json
 Content-Length: 157
@@ -202,21 +204,31 @@ Connection: close
 
 Строки заголовков разделяются `CR LF` (`$R$L` в SCL), после заголовков — пустая строка. `Content-Length` — точная длина тела в байтах.
 
-### Если ПЛК не тянет TLS
+## Настройка nginx (HTTP по IP)
 
-Можно открыть приём по обычному HTTP. В `infra/nginx/default.conf` в блок `server { listen 80; ... }` перед `location /` добавить:
+В `infra/nginx/default.conf` есть отдельный блок `server { listen 80 default_server; server_name 168.113.176.218 _; ... }`. Он отдаёт сайт и `/api/` по HTTP без редиректа. Блок `server_name agromir-stat.online` на порту 80 по-прежнему редиректит на HTTPS и обслуживает проверку certbot.
+
+После изменения конфига на сервере:
+
+```bash
+cd <путь к проекту>/infra
+docker compose exec frontend nginx -t
+docker compose exec frontend nginx -s reload
+```
+
+### Ограничение по IP завода
+
+Чтобы по HTTP приём шёл только с завода, в блоке HTTP по IP добавьте отдельный location перед `location /api/`:
 
 ```nginx
 location = /api/v1/ingest/readings {
+    allow <внешний IP завода>;
+    deny all;
     proxy_pass http://api:8000/api/v1/ingest/readings;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
 }
 ```
-
-И перезапустить `docker compose restart frontend`. Тогда URL для ПЛК будет `http://168.113.176.218:80/api/v1/ingest/readings`.
-
-Минус: ключ `AGENT_API_KEY` будет передаваться открытым текстом. Делайте так только через VPN или с ограничением по IP завода (`allow <IP завода>; deny all;` в этом `location`).
 
 ## Проверка
 
@@ -225,7 +237,7 @@ location = /api/v1/ingest/readings {
 ```powershell
 $body = '{"plant_id":"plant-01","readings":[{"boiler_number":1,"level_mm":7301,"density":1.35,"volume_m3":159.98,"volume_l":159980,"mass_t":215.97,"income_month":0,"outflow_month":0,"income_year":0,"outflow_year":0}]}'
 Invoke-RestMethod -Method Post `
-  -Uri https://agromir-stat.online/api/v1/ingest/readings `
+  -Uri http://168.113.176.218/api/v1/ingest/readings `
   -Headers @{ Authorization = "Bearer <AGENT_API_KEY>" } `
   -ContentType "application/json" -Body $body
 ```
@@ -235,7 +247,7 @@ Invoke-RestMethod -Method Post `
 curl:
 
 ```bash
-curl -X POST https://agromir-stat.online/api/v1/ingest/readings \
+curl -X POST http://168.113.176.218/api/v1/ingest/readings \
   -H "Authorization: Bearer <AGENT_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{"plant_id":"plant-01","readings":[{"boiler_number":1,"level_mm":7301,"density":1.35,"volume_m3":159.98,"volume_l":159980,"mass_t":215.97}]}'
@@ -244,7 +256,7 @@ curl -X POST https://agromir-stat.online/api/v1/ingest/readings \
 Когда пришёл последний пакет от завода (без авторизации):
 
 ```
-GET https://agromir-stat.online/api/v1/plants/plant-01/status
+GET http://168.113.176.218/api/v1/plants/plant-01/status
 → {"plant_id":"plant-01","last_accepted_at":"2026-11-11T17:30:00Z","last_count":24}
 ```
 
