@@ -39,6 +39,23 @@ Connection: close
 
 `<AGENT_API_KEY>` — значение `AGENT_API_KEY` из `services/api/.env` на сервере. Без заголовка или с неверным ключом сервер ответит `401`.
 
+Если отправитель не умеет задавать `Authorization`, ключ можно передать в любом из заголовков (проверяются по порядку, префикс `Bearer ` необязателен):
+
+| Заголовок | Пример |
+|---|---|
+| `Authorization` | `Authorization: Bearer <AGENT_API_KEY>` |
+| `Header` | `Header: <AGENT_API_KEY>` или `Header: Bearer <AGENT_API_KEY>` |
+| `X-API-Key` | `X-API-Key: <AGENT_API_KEY>` |
+
+Все отклонённые запросы пишутся в лог API (`docker compose logs -f api`):
+
+```
+ingest auth: no key from 95.46.67.28 (expected one of headers [Authorization Header X-API-Key])
+ingest auth: wrong key from 95.46.67.28 in header "Header" (AgRm***, len=33)
+ingest from 95.46.67.28: invalid body: <причина>; body: <первые 1000 байт тела>
+ingest from 95.46.67.28 (plant plant-01): unknown boiler_number: [25]
+```
+
 ## Тело запроса (JSON)
 
 ### Минимальный пакет (рекомендуется для ПЛК)
