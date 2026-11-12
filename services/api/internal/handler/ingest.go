@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -27,16 +28,18 @@ func NewIngestHandler(svc *service.IngestService) *IngestHandler {
 }
 
 func (h *IngestHandler) IngestReadings(c *gin.Context) {
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
 	if err != nil {
-		rejectIngest(c, body, "read body: "+err.Error())
+		rejectIngest(c, raw, "read body: "+err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
 		return
 	}
 
+	body := cleanPLCBody(raw)
+
 	var req model.IngestRequest
 	if err := binding.JSON.BindBody(body, &req); err != nil {
-		rejectIngest(c, body, "invalid json/body: "+err.Error())
+		rejectIngest(c, raw, "invalid json/body: "+err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "invalid request body",
 			"details": err.Error(),
@@ -52,9 +55,67 @@ func (h *IngestHandler) IngestReadings(c *gin.Context) {
 		return
 	}
 
-	log.Printf("accepted packet from %s (%s): %d records, body=%d bytes",
-		req.PlantID, c.ClientIP(), accepted, len(body))
+	log.Printf("accepted packet from %s (%s): %d records, raw=%d clean=%d bytes",
+		req.PlantID, c.ClientIP(), accepted, len(raw), len(body))
 	c.JSON(http.StatusOK, model.IngestResponse{Accepted: accepted})
+}
+
+// cleanPLCBody extracts the JSON object out of a fixed-size S7 Array of Char buffer:
+// strips NULs and S7 String length headers before '{', stops at the first NUL after '{'
+// or the last '}', and fixes locale decimal commas between digits (1,35 -> 1.35).
+func cleanPLCBody(raw []byte) []byte {
+	b := raw
+	start := bytes.IndexByte(b, '{')
+	if start < 0 {
+		return bytes.Trim(b, "\x00 \t\r\n")
+	}
+	b = b[start:]
+	if nul := bytes.IndexByte(b, 0); nul >= 0 {
+		b = b[:nul]
+	}
+	if end := bytes.LastIndexByte(b, '}'); end >= 0 {
+		b = b[:end+1]
+	}
+	b = bytes.TrimSpace(b)
+	return fixDecimalCommas(b)
+}
+
+// fixDecimalCommas turns 1,35 into 1.35 outside JSON strings so PLC locale formatting works.
+func fixDecimalCommas(b []byte) []byte {
+	var out []byte
+	inString := false
+	escaped := false
+	for i := 0; i < len(b); i++ {
+		c := b[i]
+		if inString {
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if c == '"' {
+			inString = true
+			continue
+		}
+		if c == ',' && i > 0 && i+1 < len(b) && isDigit(b[i-1]) && isDigit(b[i+1]) {
+			if out == nil {
+				out = append([]byte(nil), b...)
+			}
+			out[i] = '.'
+		}
+	}
+	if out != nil {
+		return out
+	}
+	return b
+}
+
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
 }
 
 func (h *IngestHandler) GetPlantStatus(c *gin.Context) {
