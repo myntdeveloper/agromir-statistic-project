@@ -44,8 +44,20 @@ Connection: close
 | Заголовок | Пример |
 |---|---|
 | `Authorization` | `Authorization: Bearer <AGENT_API_KEY>` |
-| `Header` | `Header: <AGENT_API_KEY>` или `Header: Bearer <AGENT_API_KEY>` |
+| `Header` / `Head` | `Header: Bearer <AGENT_API_KEY>` (как в LHTTP DB) |
 | `X-API-Key` | `X-API-Key: <AGENT_API_KEY>` |
+
+### LHTTP (S7-1200) — что куда в DB
+
+| Поле в DB | Назначение | Что поставить |
+|---|---|---|
+| `url` | адрес | `http://168.113.176.218/api/v1/ingest/readings` (с `http://`, не https) |
+| `contentType` | Content-Type | `application/json` |
+| `HeaderData` | заголовки запроса | имя `Header` (или `Authorization`), значение `Bearer <AGENT_API_KEY>` |
+| `Head` / `Authorization` (String) | часто **не уходят** в HTTP, если FB их не читает | дублируйте ключ в `HeaderData` |
+| тело запроса (Array of Char) | JSON, который уходит на сервер | сюда копировать JSON; `String` макс. 254 символа — для пакета мало |
+| `body` (String) | только если FB реально берёт тело отсюда | на скрине Snapshot = пусто → в эфир не уходит |
+| `responseData` | **ответ** сервера, не отправка | сюда JSON не класть |
 
 Отклонённые запросы видны в обоих логах.
 

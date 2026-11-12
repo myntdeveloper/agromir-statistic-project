@@ -12,7 +12,8 @@ import (
 
 // PLC/WinCC senders cannot always set Authorization, so the key is also read from
 // "Header" and "X-API-Key", with or without the "Bearer " prefix.
-var agentKeyHeaders = []string{"Authorization", "Header", "X-API-Key"}
+// LHTTP DB often names the custom header field "Head" / "Header".
+var agentKeyHeaders = []string{"Authorization", "Header", "Head", "X-API-Key"}
 
 func AgentBearer(expected string) gin.HandlerFunc {
 	return func(c *gin.Context) {
