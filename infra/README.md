@@ -47,13 +47,28 @@ Connection: close
 | `Header` | `Header: <AGENT_API_KEY>` или `Header: Bearer <AGENT_API_KEY>` |
 | `X-API-Key` | `X-API-Key: <AGENT_API_KEY>` |
 
-Все отклонённые запросы пишутся в лог API (`docker compose logs -f api`):
+Отклонённые запросы видны в обоих логах.
+
+**nginx / frontend** (`docker compose logs -f frontend`) — тело запроса и причина в одной строке:
 
 ```
-ingest auth: no key from 95.46.67.28 (expected one of headers [Authorization Header X-API-Key])
-ingest auth: wrong key from 95.46.67.28 in header "Header" (abcd***, len=12)
-ingest from 95.46.67.28: invalid body: <причина>; body: <первые 1000 байт тела>
-ingest from 95.46.67.28 (plant plant-01): unknown boiler_number: [25]
+95.46.67.28 [12/Nov/2026:07:44:20 +0000] "POST /api/v1/ingest/readings HTTP/1.1" 400 ua="SIMATIC Controller (LHTTP)" ctype="application/json" clen=312 err="invalid json/body: ..." body="{"plant_id":...}"
+```
+
+**API** (`docker compose logs -f api`) — полный дамп:
+
+```
+========== INGEST REJECTED ==========
+client=95.46.67.28 method=POST path=/api/v1/ingest/readings ua="SIMATIC Controller (LHTTP)"
+reason: invalid json/body: ...
+content-type="application/json" content-length="312" ...
+headers:
+  Content-Type: application/json
+  Header: AgRm***, len=33
+  ...
+body (312 bytes):
+{"plant_id":"plant-01", ...}
+=====================================
 ```
 
 ## Тело запроса (JSON)
@@ -277,4 +292,13 @@ GET http://168.113.176.218/api/v1/plants/plant-01/status
 → {"plant_id":"plant-01","last_accepted_at":"2026-11-11T17:30:00Z","last_count":24}
 ```
 
-В логах API (`docker compose logs -f api`) на каждый принятый пакет пишется `accepted packet from plant-01: 24 records`.
+В логах API (`docker compose logs -f api`) на каждый принятый пакет пишется `accepted packet from plant-01: N records`.
+
+Если в `frontend` снова видно только `400` без `body=` / `err=` — конфиг nginx на сервере ещё старый. Пересоздайте frontend и пересоберите api:
+
+```bash
+cd <путь>/infra
+docker compose up -d --force-recreate frontend
+docker compose up -d --build api
+docker compose logs -f --tail=50 api frontend
+```

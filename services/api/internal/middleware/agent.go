@@ -17,19 +17,32 @@ var agentKeyHeaders = []string{"Authorization", "Header", "X-API-Key"}
 func AgentBearer(expected string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		got, source := agentKey(c)
+		var reason string
 		switch {
 		case expected == "":
-			log.Printf("ingest auth: AGENT_API_KEY is not set on server, rejecting %s", c.ClientIP())
+			reason = "AGENT_API_KEY is not set on server"
 		case got == "":
-			log.Printf("ingest auth: no key from %s (expected one of headers %v)", c.ClientIP(), agentKeyHeaders)
+			reason = "no key (expected headers Authorization|Header|X-API-Key)"
 		case !hmac.Equal([]byte(got), []byte(expected)):
-			log.Printf("ingest auth: wrong key from %s in header %q (%s)", c.ClientIP(), source, maskKey(got))
+			reason = "wrong key in header " + source + " (" + maskKey(got) + ")"
 		default:
 			c.Next()
 			return
 		}
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		log.Printf("ingest auth: %s from %s; headers present: %v", reason, c.ClientIP(), presentHeaders(c))
+		c.Header("X-Ingest-Error", reason)
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "details": reason})
 	}
+}
+
+func presentHeaders(c *gin.Context) []string {
+	out := make([]string, 0, len(agentKeyHeaders))
+	for _, name := range agentKeyHeaders {
+		if strings.TrimSpace(c.GetHeader(name)) != "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 func agentKey(c *gin.Context) (key, source string) {
