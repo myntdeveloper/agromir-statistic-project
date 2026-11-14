@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -48,7 +50,11 @@ func (h *IngestHandler) IngestReadings(c *gin.Context) {
 		return
 	}
 
-	accepted, err := h.service.Ingest(c.Request.Context(), req)
+	// PLC may disconnect before the response; keep DB write independent of client abort.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 10*time.Second)
+	defer cancel()
+
+	accepted, err := h.service.Ingest(ctx, req)
 	if err != nil {
 		rejectIngest(c, body, fmt.Sprintf("plant=%s: %v", req.PlantID, err))
 		writeIngestError(c, err)
