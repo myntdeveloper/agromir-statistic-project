@@ -39,8 +39,8 @@ func (h *IngestHandler) IngestReadings(c *gin.Context) {
 
 	body := cleanPLCBody(raw)
 
-	var req model.IngestRequest
-	if err := binding.JSON.BindBody(body, &req); err != nil {
+	req, err := parseIngestBody(body)
+	if err != nil {
 		rejectIngest(c, raw, "invalid json/body: "+err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "invalid request body",
@@ -64,6 +64,19 @@ func (h *IngestHandler) IngestReadings(c *gin.Context) {
 	log.Printf("accepted packet from %s (%s): %d records, raw=%d clean=%d bytes",
 		req.PlantID, c.ClientIP(), accepted, len(raw), len(body))
 	c.JSON(http.StatusOK, model.IngestResponse{Accepted: accepted})
+}
+
+// parseIngestBody accepts the agent envelope {plant_id, readings:[...]} or the
+// compact single-tank PLC object {id,nom,tIn,lmm,...}.
+func parseIngestBody(body []byte) (model.IngestRequest, error) {
+	if model.LooksLikeCompactPLC(body) {
+		return model.IngestRequestFromCompactJSON(body)
+	}
+	var req model.IngestRequest
+	if err := binding.JSON.BindBody(body, &req); err != nil {
+		return model.IngestRequest{}, err
+	}
+	return req, nil
 }
 
 // cleanPLCBody extracts the JSON object out of a fixed-size S7 Array of Char buffer:
